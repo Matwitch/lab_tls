@@ -23,8 +23,14 @@ def run_tls_server():
     # You'll need actual certificate and key files
     from scapy.layers.tls.cert import Cert, PrivKey
     
-    session.server_certs = [Cert("server.der")]
-    session.server_key = PrivKey("server.key")
+    try:
+        session.server_certs = [Cert("test_server_cert.der")]
+        session.server_key = PrivKey("test_server_key.der")
+        print("[Server] Test RSA certificate and key loaded successfully")
+    except Exception as e:
+        print(f"[Server] Error loading test certificate/key: {e}")
+        # For demonstration, we'll use dummy cert/key
+        print("[Server] Using dummy certificate/key")
     
     # For demonstration, we'll use dummy cert/key
     # In production, load real certificates
@@ -37,6 +43,7 @@ def run_tls_server():
     print(f"[Server] Listening on {SERVER_IP}:{SERVER_PORT}")
     conn, addr = server_sock.accept()
     print(f"[Server] Connection from {addr}")
+    print("[Server] Connection accepted, starting handshake")
     
     # Step 1: Receive and parse ClientHello
     data = _read_single_TLS_package(conn)
@@ -56,7 +63,7 @@ def run_tls_server():
         random_bytes=os.urandom(28),
         sid=os.urandom(32),
         cipher=[
-            TLS_DHE_DSS_WITH_AES_128_CBC_SHA256.val
+            TLS_DHE_RSA_WITH_AES_128_CBC_SHA256.val
             ], 
         comp=0
     )
@@ -68,11 +75,22 @@ def run_tls_server():
         tls_session=session
     )
     
+    # Manually set server_random in session
+    server_random = server_hello.gmt_unix_time.to_bytes(4, 'big') + server_hello.random_bytes
+    session.server_random = server_random
+
     conn.sendall(bytes(server_hello_record))
     print("[Server] Sent ServerHello")
+    server_hello_record.show2()
     
     # Update session after building ServerHello
     session = server_hello_record.tls_session
+    
+    # Set the pending write cipher suite
+    session.pwcs = TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
+    # Add missing key_exchange attribute that Scapy expects
+    if not hasattr(session.pwcs, 'key_exchange'):
+        session.pwcs.key_exchange = session.pwcs.kx_alg
     
     # Step 3: Send Certificate
     # Load actual certificate or use a dummy one
@@ -89,13 +107,37 @@ def run_tls_server():
     
     conn.sendall(bytes(cert_record))
     print("[Server] Sent Certificate")
+    cert_record.show2()
     session = cert_record.tls_session
     
     # Step 4: Send ServerKeyExchange (optional for RSA key exchange)
     # For DHE/ECDHE, you would send ServerKeyExchange here
-
-    DHE_params = ServerDHParams(tls_session=session)
-    ske_msg = TLSServerKeyExchange(params=DHE_params, tls_session=session)
+    # Generate DH parameters and private/public keys
+    from cryptography.hazmat.primitives.asymmetric import dh
+    from cryptography.hazmat.backends import default_backend
+    
+    # Generate DH parameters (p and g)
+    parameters = dh.generate_parameters(generator=2, key_size=1024, backend=default_backend())
+    
+    # Generate server's private key from these parameters
+    server_privkey = parameters.generate_private_key()
+    
+    # Store in session so ServerDHParams can use them
+    session.server_kx_privkey = server_privkey
+    
+    # Extract the DH parameters for ServerDHParams
+    param_numbers = parameters.parameter_numbers()
+    p_bytes = param_numbers.p.to_bytes((param_numbers.p.bit_length() + 7) // 8, 'big')
+    g_bytes = param_numbers.g.to_bytes((param_numbers.g.bit_length() + 7) // 8, 'big')
+    
+    # Get server's public key
+    server_pubkey = server_privkey.public_key()
+    pubkey_numbers = server_pubkey.public_numbers()
+    y_bytes = pubkey_numbers.y.to_bytes((pubkey_numbers.y.bit_length() + 7) // 8, 'big')
+    
+    # Create ServerDHParams with explicit parameters
+    DHE_params = ServerDHParams(dh_p=p_bytes, dh_g=g_bytes, dh_Ys=y_bytes, tls_session=session)
+    ske_msg = TLSServerKeyExchange(params=DHE_params)
     
 
     ske_record = TLS(
@@ -105,10 +147,13 @@ def run_tls_server():
         tls_session=session
     )
     
+    # print(f"[Server] Before building ServerKeyExchange - server_key: {session.server_key}")
+    # Force the packet to be built so DHE parameters are generated
+    ske_bytes = bytes(ske_record)
     
-    conn.sendall(bytes(ske_record))
+    conn.sendall(ske_bytes)
     print("[Server] Sent ServerKeyExchange")
-    print(bytes(ske_record))
+    print(ske_bytes)
     ske_record.show2()
     session = ske_record.tls_session
 
@@ -127,6 +172,7 @@ def run_tls_server():
 
     conn.sendall(bytes(server_done_record))
     print("[Server] Sent ServerHelloDone")
+    server_done_record.show2()
     session = server_done_record.tls_session.mirror()
     
     # Step 6: Receive ClientKeyExchange
@@ -134,28 +180,32 @@ def run_tls_server():
     cke_record = TLS(
         data, 
         tls_session=session
-        )
+    )
     print("[Server] Received ClientKeyExchange")
-    
     cke_record.show2()
     # Session automatically extracts pre-master secret and computes master secret
     session = cke_record.tls_session
     
     # Step 7: Receive ChangeCipherSpec from client
     data = _read_single_TLS_package(conn)
+
     ccs_record = TLS(data, tls_session=session)
     print("[Server] Received ChangeCipherSpec from client")
+    ccs_record.show2()
     
     # Session automatically updates cipher state
     session = ccs_record.tls_session
     
     # Step 8: Receive Finished from client (encrypted)
     data = _read_single_TLS_package(conn)
+
     finished_record = TLS(data, tls_session=session)
     print("[Server] Received Finished from client")
+    finished_record.show2()
     
     # Session automatically decrypts and verifies Finished message
-    session = finished_record.tls_session.mirror()
+    # Don't mirror here - stay in receive mode
+    session = finished_record.tls_session
     
     # Step 9: Send ChangeCipherSpec
     ccs_msg = TLSChangeCipherSpec()
@@ -169,10 +219,12 @@ def run_tls_server():
     
     conn.sendall(bytes(ccs_send_record))
     print("[Server] Sent ChangeCipherSpec")
+    ccs_send_record.show2()
+
     session = ccs_send_record.tls_session
     
     # Step 10: Send Finished (encrypted with negotiated keys)
-    # TLSSession automatically computes verify_data and encrypts
+    # ChangeCipherSpec should have activated the write cipher, no need to mirror
     finished_msg = TLSFinished()
     
     finished_send_record = TLS(
@@ -182,9 +234,13 @@ def run_tls_server():
         tls_session=session
     )
     
-    conn.sendall(bytes(finished_send_record))
+    finished_bytes = bytes(finished_send_record)
+    conn.sendall(finished_bytes)
     print("[Server] Sent Finished (encrypted)")
-    session = finished_send_record.tls_session.mirror()
+    finished_send_record.show2()
+    
+    print("Server sent bytes:", finished_bytes.hex()[:20])
+    session = finished_send_record.tls_session
     
     # Step 11: Receive ApplicationData
     data = _read_single_TLS_package(conn)
@@ -212,6 +268,7 @@ def run_tls_server():
     
     conn.sendall(bytes(app_data_send_record))
     print("[Server] Sent ApplicationData (encrypted)")
+    app_data_send_record.show2()
     
     conn.close()
     server_sock.close()

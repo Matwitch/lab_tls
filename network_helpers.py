@@ -1,21 +1,21 @@
 import socket
 
 def _read_TLS_header(sock: socket):
-    sock.settimeout(5.0)
+    sock.settimeout(30.0)  # Increased timeout
     header = bytearray(5)
 
     for i in range(5):
         try:
             header[i] = sock.recv(1)[0]
         except socket.timeout:
-            print("Socket TLS Header pending timeout")
+            raise RuntimeError("Socket TLS Header pending timeout")
 
     if not (0x14 <= header[0] <= 0x18):
-        raise RuntimeError(f"Incorrect TLS header format: {int.from_bytes(header[0], 'big')} is not valid Content Type")
+        raise RuntimeError(f"Incorrect TLS header format: {header[0]} is not valid Content Type")
     if not (0x3 <= header[1] <= 0x4):
-        raise RuntimeError(f"Incorrect TLS header format: {int.from_bytes(header[0], 'big')} is not valid TLS Verison")
+        raise RuntimeError(f"Incorrect TLS header format: {header[1]} is not valid TLS Verison")
     if not (0x3 <= header[2] <= 0x4):
-        raise RuntimeError(f"Incorrect TLS header format: {int.from_bytes(header[0], 'big')} is not valid TLS Verison")
+        raise RuntimeError(f"Incorrect TLS header format: {header[2]} is not valid TLS Verison")
 
     length = int.from_bytes(header[3:5], 'big')
 
@@ -28,12 +28,12 @@ def _read_single_TLS_package(sock):
     
     content = bytearray()
 
-    sock.settimeout(5.0)
+    sock.settimeout(30.0)  # Increased timeout
     while len(content) < length:
         try:
             content.extend(sock.recv(length - len(content)))
         except socket.timeout:
-            print("Socket TLS Package Content pending timeout")
+            raise RuntimeError("Socket TLS Package Content pending timeout")
     
     sock.settimeout(None)
 
