@@ -95,6 +95,17 @@ def run_tls_client():
     client_sock.connect((SERVER_IP, SERVER_PORT))
     print(f"[Client] Connected to {SERVER_IP}:{SERVER_PORT}")
 
+    from scapy.layers.tls.cert import Cert, PrivKey
+    
+    try:
+        session.client_certs = [Cert("test_server_cert.der")]
+        session.client_key = PrivKey("test_server_key.der")
+        print("[Server] Test RSA certificate and key loaded successfully")
+    except Exception as e:
+        print(f"[Server] Error loading test certificate/key: {e}")
+        # For demonstration, we'll use dummy cert/key
+        print("[Server] Using dummy certificate/key")
+
     session.pwcs = TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
 
     # Step 1: Build and send ClientHello

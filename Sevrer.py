@@ -249,6 +249,7 @@ def run_tls_server():
     
     # Session automatically decrypts application data
     if app_data_record.haslayer(TLSApplicationData):
+        TLS(data).show2()
         decrypted_data = app_data_record[TLSApplicationData].data
         print(f"  Decrypted: {decrypted_data}")
     
@@ -268,7 +269,7 @@ def run_tls_server():
     
     conn.sendall(bytes(app_data_send_record))
     print("[Server] Sent ApplicationData (encrypted)")
-    app_data_send_record.show2()
+    TLS(app_data_msg).show2()
     
     conn.close()
     server_sock.close()
