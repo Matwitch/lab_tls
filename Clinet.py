@@ -11,7 +11,7 @@ from scapy.layers.tls.handshake import *
 from scapy.layers.tls.keyexchange import *
 from scapy.layers.tls.crypto.suites import *
 from scapy.layers.tls.cert import Cert, PrivKey
-
+from scapy.layers.tls.crypto.groups import _tls_named_curves
 
 load_layer("tls")
 
@@ -140,13 +140,16 @@ def run_tls_client():
    
     # =======|  ClientKeyExchange  |=======
     if session.server_kx_pubkey:
-        session.client_kx_ffdh_params = session.server_kx_pubkey.parameters()
-        # session.client_kx_privkey = session.client_kx_ffdh_params.generate_private_key()
+        
+        # session.client_kx_ffdh_params = session.server_kx_pubkey.parameters()
+        session.client_kx_ecdh_params = [c for c in _tls_named_curves.keys() if _tls_named_curves[c] == session.kx_group][0]
         
     else:
         raise RuntimeError("Did not recieve server public key")
     
-    DHE_params = ClientDiffieHellmanPublic(tls_session=session)
+    DHE_params = ClientECDiffieHellmanPublic(tls_session=session)
+    DHE_params.fill_missing()
+    # DHE_params = ClientDiffieHellmanPublic(tls_session=session)
     cke_msg = TLSClientKeyExchange(exchkeys=DHE_params)
 
     cke_record = TLS(
