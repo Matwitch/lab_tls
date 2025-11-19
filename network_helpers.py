@@ -1,4 +1,8 @@
 import socket
+from scapy.layers.tls.all import *
+from scapy.layers.tls.crypto.suites import *
+
+
 
 def _read_TLS_header(sock: socket):
     sock.settimeout(30.0)  # Increased timeout

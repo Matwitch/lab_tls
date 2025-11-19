@@ -1,11 +1,12 @@
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import dsa, rsa
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import dsa, rsa, ec, dh
 from cryptography.hazmat.backends import default_backend
 import datetime
 
+from scapy.layers.tls.crypto.pkcs1 import pkcs_i2osp
+    
 
 def _build_x509_certificate(**kwargs):
     builder = x509.CertificateBuilder()
@@ -64,8 +65,7 @@ def generate_RSA_keys_certificate(name: str, key_size: int = 1024):
 
 
 
-
-def generate_ECDSA_keys_certificate(name: str, key_size: int = 1024):
+def generate_ECDSA_keys_certificate(name: str):
     private_key = ec.generate_private_key(ec.BrainpoolP384R1())
     
     builder = _build_x509_certificate(
@@ -87,3 +87,22 @@ def generate_ECDSA_keys_certificate(name: str, key_size: int = 1024):
 
     with open(f"{name}.crt", "wb") as f:
         f.write(certificate.public_bytes(serialization.Encoding.DER))
+
+
+
+
+def generate_DHE_piece(params: dh.DHParameters | None = None):
+    if not params:
+        params = dh.generate_parameters(generator=2, key_size=1024)
+    
+    privkey = params.generate_private_key()
+
+    param_numbers = params.parameter_numbers()
+    p_bytes = param_numbers.p.to_bytes((param_numbers.p.bit_length() + 7) // 8, 'big')
+    g_bytes = param_numbers.g.to_bytes((param_numbers.g.bit_length() + 7) // 8, 'big')
+    
+    pubkey = privkey.public_key()
+    pubkey_numbers = pubkey.public_numbers()
+    y_bytes = pubkey_numbers.y.to_bytes((pubkey_numbers.y.bit_length() + 7) // 8, 'big')
+
+    return p_bytes, g_bytes, y_bytes, privkey
