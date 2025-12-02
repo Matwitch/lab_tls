@@ -33,7 +33,7 @@ def run_tls_client():
     except Exception as e:
         print(f"[Server] Error loading certificate/key: {e}")
 
-    # session.pwcs = TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
+    session.pwcs = TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
 
 
     client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -149,7 +149,8 @@ def run_tls_client():
     
     DHE_params = ClientECDiffieHellmanPublic(tls_session=session)
     DHE_params.fill_missing()
-    # DHE_params = ClientDiffieHellmanPublic(tls_session=session)
+    
+    # session. = session.server_kx_privkey.public_key()
     cke_msg = TLSClientKeyExchange(exchkeys=DHE_params)
 
     cke_record = TLS(
@@ -168,9 +169,10 @@ def run_tls_client():
 
     session = cke_record.tls_session
 
-    # print(f"Client key: {session.client_kx_privkey}")
-    # print(f"Pre-master key: {session.pre_master_secret}")
-    # print(f"Master key: {session.master_secret}")
+    print(f"Client private key:\n {session.client_kx_privkey}\n")
+    print(f"Server public key:\n {session.server_kx_pubkey}\n")
+    print(f"Pre-master key:\n {session.pre_master_secret}\n")
+    print(f"Master key:\n {session.master_secret}\n")
     
     # =======|  Client: ChangeCipherSpec  |=======
     ccs_msg = TLSChangeCipherSpec()

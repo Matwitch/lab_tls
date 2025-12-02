@@ -127,8 +127,11 @@ def run_tls_server():
     DHE_params = ServerECDHNamedCurveParams(tls_session=session)
     DHE_params.fill_missing()
 
+    session = DHE_params.tls_session
+    
+    # TODO чи потрібно
+    # session.server_kx_pubkey = session.server_kx_privkey.public_key()
 
-    session.server_kx_pubkey = session.server_kx_privkey.public_key()
     ske_msg = TLSServerKeyExchange(params=DHE_params)
 
     ske_record = TLS(
@@ -150,10 +153,6 @@ def run_tls_server():
 
     session = ske_record.tls_session
 
-    print(session.selected_sig_alg)
-    print(session.kx_group)
-    print(session.server_kx_privkey)
-    print(session.server_kx_pubkey)
 
     # =======|  ServerHelloDone  |=======
     server_done_msg = TLSServerHelloDone()
@@ -176,19 +175,26 @@ def run_tls_server():
     
 
     # =======|  ClientKeyExchange  |=======
+    # TODO Server not setting client_kx_pubkey on tls_session after recieving this message
     data = _read_single_TLS_package(conn)
     cke_record = TLS(
         data, 
         tls_session=session
     )
     print("[Server] Received ClientKeyExchange")
-    cke_record.show()
+    cke_record.show2()
     print('\n')
     # ===============================
 
 
     session = cke_record.tls_session
     
+
+    print(f"Client public key:\n {session.client_kx_pubkey}\n")
+    print(f"Server private key:\n {session.server_kx_privkey}\n")
+    print(f"Pre-master key:\n {session.pre_master_secret}\n")
+    print(f"Master key:\n {session.master_secret}\n")
+
 
     # =======|  Client: ChangeCipherSpec  |=======
     data = _read_single_TLS_package(conn)
