@@ -27,6 +27,7 @@ def run_tls_client():
     try:
         cert_name = "client"
         generate_ECDSA_keys_certificate(cert_name)
+        # generate_RSA_keys_certificate(cert_name)
         session.client_certs = [Cert(f"{cert_name}.crt")]
         session.client_key = PrivKey(f"{cert_name}.key")
 
@@ -34,13 +35,16 @@ def run_tls_client():
         print(f"[Server] Error loading certificate/key: {e}")
 
     session.pwcs = TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
-
+    # session.pwcs = TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
+    session.prcs = TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
 
     client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_sock.connect((SERVER_IP, SERVER_PORT))
     session.sock = client_sock
     print(f"[Client] Connected to {SERVER_IP}:{SERVER_PORT}")
 
+
+    # TODO check when client's session.pwcs becomes HUGE
 
 
     # =======|  ClientHello  |=======
@@ -50,7 +54,8 @@ def run_tls_client():
         random_bytes=os.urandom(28),
         sid=b'',
         ciphers=[
-            TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256.val
+            TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256.val,
+            TLS_DHE_RSA_WITH_AES_128_CBC_SHA256.val
         ],
         comp=[0],
         ext=[]
@@ -139,15 +144,16 @@ def run_tls_client():
     
    
     # =======|  ClientKeyExchange  |=======
-    if session.server_kx_pubkey:
+    # if session.server_kx_pubkey:
         
-        # session.client_kx_ffdh_params = session.server_kx_pubkey.parameters()
-        session.client_kx_ecdh_params = [c for c in _tls_named_curves.keys() if _tls_named_curves[c] == session.kx_group][0]
+    #     # session.client_kx_ffdh_params = session.server_kx_pubkey.parameters()
+    #     session.client_kx_ecdh_params = [c for c in _tls_named_curves.keys() if _tls_named_curves[c] == session.kx_group][0]
         
-    else:
-        raise RuntimeError("Did not recieve server public key")
+    # else:
+    #     raise RuntimeError("Did not recieve server public key")
     
     DHE_params = ClientECDiffieHellmanPublic(tls_session=session)
+    # DHE_params = ClientDiffieHellmanPublic(tls_session=session)
     DHE_params.fill_missing()
     
     # session. = session.server_kx_privkey.public_key()
@@ -169,9 +175,10 @@ def run_tls_client():
 
     session = cke_record.tls_session
 
-    print(f"Client private key:\n {session.client_kx_privkey}\n")
+    print(f"Client session pwcs:\n {session.pwcs}\n")
     print(f"Server public key:\n {session.server_kx_pubkey}\n")
     print(f"Pre-master key:\n {session.pre_master_secret}\n")
+    print(f"Client session hash and sesh:\n {session.session_hash}\n")
     print(f"Master key:\n {session.master_secret}\n")
     
     # =======|  Client: ChangeCipherSpec  |=======

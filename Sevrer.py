@@ -25,6 +25,7 @@ def run_tls_server():
     try:
         cert_name = "server"
         generate_ECDSA_keys_certificate(cert_name)
+        # generate_RSA_keys_certificate(cert_name)
         session.server_certs = [Cert(f"{cert_name}.crt")]
         session.server_key = PrivKey(f"{cert_name}.key")
 
@@ -33,6 +34,9 @@ def run_tls_server():
 
 
     session.pwcs = TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
+    # session.pwcs = TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
+    session.prcs = TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
+
     if not hasattr(session.pwcs, 'key_exchange'):
         session.pwcs.key_exchange = session.pwcs.kx_alg
     session.selected_sig_alg = [c for c in _tls_hash_sig.keys() if _tls_hash_sig[c] == "sha256+ecdsa"][0]
@@ -70,7 +74,8 @@ def run_tls_server():
         random_bytes=os.urandom(28),
         sid=os.urandom(32),
         cipher=[
-            TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256.val
+            TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256.val,
+            TLS_DHE_RSA_WITH_AES_128_CBC_SHA256.val,
             ], 
         comp=0
     )
@@ -121,16 +126,15 @@ def run_tls_server():
     # =======|  ServerKeyExchange  |=======
     p_bytes, g_bytes, y_bytes, privkey = generate_DHE_piece()
     # session.server_kx_privkey = privkey
-    # DHE_params = ServerDHParams(dh_p=p_bytes, dh_g=g_bytes, dh_Ys=y_bytes, tls_session=session)
+    DHE_params = ServerDHParams(dh_p=p_bytes, dh_g=g_bytes, dh_Ys=y_bytes, tls_session=session)
 
     
     DHE_params = ServerECDHNamedCurveParams(tls_session=session)
+    # DHE_params = ServerDHParams(tls_session=session)
     DHE_params.fill_missing()
 
+
     session = DHE_params.tls_session
-    
-    # TODO чи потрібно
-    # session.server_kx_pubkey = session.server_kx_privkey.public_key()
 
     ske_msg = TLSServerKeyExchange(params=DHE_params)
 
@@ -182,7 +186,7 @@ def run_tls_server():
         tls_session=session
     )
     print("[Server] Received ClientKeyExchange")
-    cke_record.show2()
+    cke_record.show()
     print('\n')
     # ===============================
 
@@ -190,10 +194,7 @@ def run_tls_server():
     session = cke_record.tls_session
     
 
-    print(f"Client public key:\n {session.client_kx_pubkey}\n")
-    print(f"Server private key:\n {session.server_kx_privkey}\n")
-    print(f"Pre-master key:\n {session.pre_master_secret}\n")
-    print(f"Master key:\n {session.master_secret}\n")
+
 
 
     # =======|  Client: ChangeCipherSpec  |=======
@@ -253,6 +254,12 @@ def run_tls_server():
         tls_session=session
     )
     
+    print(f"Server session pwcs:\n {session.pwcs}\n")
+    print(f"Client public key:\n {session.client_kx_pubkey}\n")
+    print(f"Server private key:\n {session.server_kx_privkey}\n")
+    print(f"Pre-master key:\n {session.pre_master_secret}\n")
+    print(f"Master key:\n {session.master_secret}\n")
+
 
     conn.sendall(bytes(finished_send_record))
     print("[Server] Sent Finished (encrypted)")
