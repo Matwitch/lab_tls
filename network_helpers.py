@@ -5,7 +5,7 @@ from scapy.layers.tls.crypto.suites import *
 
 
 def _read_TLS_header(sock: socket):
-    sock.settimeout(45.0)
+    sock.settimeout(240)
     header = bytearray(5)
 
     for i in range(5):
@@ -32,7 +32,7 @@ def _read_single_TLS_package(sock):
     
     content = bytearray()
 
-    sock.settimeout(45.0)
+    sock.settimeout(240)
     while len(content) < length:
         try:
             content.extend(sock.recv(length - len(content)))

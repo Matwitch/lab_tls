@@ -34,9 +34,6 @@ def run_tls_client():
     except Exception as e:
         print(f"[Server] Error loading certificate/key: {e}")
 
-    session.pwcs = TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
-    # session.pwcs = TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
-    session.prcs = TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
 
     client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_sock.connect((SERVER_IP, SERVER_PORT))
@@ -44,9 +41,7 @@ def run_tls_client():
     print(f"[Client] Connected to {SERVER_IP}:{SERVER_PORT}")
 
 
-    # TODO check when client's session.pwcs becomes HUGE
-
-
+    
     # =======|  ClientHello  |=======
     client_hello = TLSClientHello(
         version=0x0303,  # TLS 1.2
@@ -54,6 +49,7 @@ def run_tls_client():
         random_bytes=os.urandom(28),
         sid=b'',
         ciphers=[
+            TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256.val,
             TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256.val,
             TLS_DHE_RSA_WITH_AES_128_CBC_SHA256.val
         ],
@@ -62,9 +58,12 @@ def run_tls_client():
     )
     
     client_hello_record = TLS(
-        type=22,
-        version=0x0303,  
-        msg=[client_hello],
+        bytes(TLS(
+            type=22,
+            version=0x0303,  
+            msg=[client_hello],
+            tls_session=session
+        )),
         tls_session=session
     )
     
@@ -151,7 +150,7 @@ def run_tls_client():
         
     # else:
     #     raise RuntimeError("Did not recieve server public key")
-    
+    session.client_kx_ecdh_params = [c for c in _tls_named_curves.keys() if _tls_named_curves[c] == session.kx_group][0]
     DHE_params = ClientECDiffieHellmanPublic(tls_session=session)
     # DHE_params = ClientDiffieHellmanPublic(tls_session=session)
     DHE_params.fill_missing()
@@ -160,9 +159,12 @@ def run_tls_client():
     cke_msg = TLSClientKeyExchange(exchkeys=DHE_params)
 
     cke_record = TLS(
-        type=22,
-        version=0x0303,
-        msg=[cke_msg],
+        bytes(TLS(
+            type=22,
+            version=0x0303,
+            msg=[cke_msg],
+            tls_session=session
+        )),
         tls_session=session
     )
 
@@ -178,16 +180,18 @@ def run_tls_client():
     print(f"Client session pwcs:\n {session.pwcs}\n")
     print(f"Server public key:\n {session.server_kx_pubkey}\n")
     print(f"Pre-master key:\n {session.pre_master_secret}\n")
-    print(f"Client session hash and sesh:\n {session.session_hash}\n")
     print(f"Master key:\n {session.master_secret}\n")
-    
+    print(f"Encrypt-then-MAC:\n {session.encrypt_then_mac}")
     # =======|  Client: ChangeCipherSpec  |=======
     ccs_msg = TLSChangeCipherSpec()
     
     ccs_record = TLS(
-        type=20,
-        version=0x0303,
-        msg=ccs_msg,
+        bytes(TLS(
+            type=20,
+            version=0x0303,
+            msg=ccs_msg,
+            tls_session=session
+        )),
         tls_session=session
     )
     
@@ -200,9 +204,9 @@ def run_tls_client():
 
     session = ccs_record.tls_session
     
-    
+    print(session.handshake_messages)
     # =======|  Client: Finished  |=======
-    finished_msg = TLSFinished()
+    finished_msg = TLSFinished(tls_session = session)
     
     finished_record = TLS(
         type=22,
@@ -211,15 +215,38 @@ def run_tls_client():
         tls_session=session
     )
     
+
     client_sock.sendall(bytes(finished_record))
     print("[Client] Sent Finished (encrypted)")
     finished_record.show()
     print('\n')
     # ===============================
     
+    """
+    [Client] Sent Finished (encrypted)
+    ###[ TLS ]###
+        type      = handshake
+        version   = TLS 1.2
+        len       = 80    [deciphered_len= 16]
+        iv        = b'\x90#\xeb\xc5$\x07\x1e.D\xd67\xf2=B\xf2\xd4'
+        \msg       \
+            |###[ TLS Handshake - Finished ]###
+            |  msgtype   = finished
+            |  msglen    = 12
+            |  vdata     = b'\x87\xcbg\x0f\xd9\xfck\xd6`)<\xde'
+        mac       = b'\x9d\xe5\xeeG\xe0n\xb7{;\xbd\x02{\x90\xab\x8d+\x18&+\xc8\xf6\x84\xfa\x81P\xf4I\x97\xa2\xccS\xfc'      
+        pad       = b'\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f'
+        padlen    = 15
+    """
+
 
     session = finished_record.tls_session
     
+    # iv, efrag 
+    # session.rcs.cipher.iv = iv
+    # session.rcs.cipher.decrypt(s)
+    
+
 
     # =======|  Server: ChangeCipherSpec  |=======
     data = _read_single_TLS_package(client_sock)
@@ -251,10 +278,10 @@ def run_tls_client():
     app_data_msg = TLSApplicationData(data=request_data)
     
     app_data_record = TLS(
-        type=23,
-        version=0x0303,
-        msg=app_data_msg,
-        tls_session=session
+            type=23,
+            version=0x0303,
+            msg=app_data_msg,
+            tls_session=session
     )
     
     client_sock.sendall(bytes(app_data_record))

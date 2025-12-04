@@ -33,12 +33,6 @@ def run_tls_server():
         print(f"[Server] Error loading certificate/key: {e}")
 
 
-    session.pwcs = TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
-    # session.pwcs = TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
-    session.prcs = TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
-
-    if not hasattr(session.pwcs, 'key_exchange'):
-        session.pwcs.key_exchange = session.pwcs.kx_alg
     session.selected_sig_alg = [c for c in _tls_hash_sig.keys() if _tls_hash_sig[c] == "sha256+ecdsa"][0]
     print(session.selected_sig_alg)
 
@@ -74,19 +68,24 @@ def run_tls_server():
         random_bytes=os.urandom(28),
         sid=os.urandom(32),
         cipher=[
+            TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256.val,
             TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256.val,
             TLS_DHE_RSA_WITH_AES_128_CBC_SHA256.val,
             ], 
-        comp=0
+        comp=0,
+        tls_session = session
     )
 
     server_hello_record = TLS(
-        type=22, 
-        version=0x0303,
-        msg=[server_hello],
+        bytes(TLS(
+            type=22, 
+            version=0x0303,
+            msg=[server_hello],
+            tls_session=session
+        )),
         tls_session=session
     )
-    
+
     # TODO wtf?
     server_random = server_hello.gmt_unix_time.to_bytes(4, 'big') + server_hello.random_bytes
     session.server_random = server_random
@@ -103,13 +102,17 @@ def run_tls_server():
 
     # =======|  Certificate  |=======
     certificate_msg = TLSCertificate(
-        certs=session.server_certs
+        certs=session.server_certs,
+        tls_session = session
     )
 
     cert_record = TLS(
-        type=22,
-        version=0x0303,
-        msg=[certificate_msg],
+        bytes(TLS(
+            type=22,
+            version=0x0303,
+            msg=[certificate_msg],
+            tls_session=session
+        )),
         tls_session=session
     )
     
@@ -124,9 +127,9 @@ def run_tls_server():
 
 
     # =======|  ServerKeyExchange  |=======
-    p_bytes, g_bytes, y_bytes, privkey = generate_DHE_piece()
+    # p_bytes, g_bytes, y_bytes, privkey = generate_DHE_piece()
     # session.server_kx_privkey = privkey
-    DHE_params = ServerDHParams(dh_p=p_bytes, dh_g=g_bytes, dh_Ys=y_bytes, tls_session=session)
+    # DHE_params = ServerDHParams(dh_p=p_bytes, dh_g=g_bytes, dh_Ys=y_bytes, tls_session=session)
 
     
     DHE_params = ServerECDHNamedCurveParams(tls_session=session)
@@ -136,12 +139,15 @@ def run_tls_server():
 
     session = DHE_params.tls_session
 
-    ske_msg = TLSServerKeyExchange(params=DHE_params)
+    ske_msg = TLSServerKeyExchange(params=DHE_params, tls_session=session)
 
     ske_record = TLS(
-        type=22,
-        version=0x0303,
-        msg=[ske_msg],
+        bytes(TLS(
+            type=22,
+            version=0x0303,
+            msg=[ske_msg],
+            tls_session=session
+        )),
         tls_session=session
     )
 
@@ -162,9 +168,12 @@ def run_tls_server():
     server_done_msg = TLSServerHelloDone()
     
     server_done_record = TLS(
-        type=22,
-        version=0x0303,
-        msg=[server_done_msg],
+        bytes(TLS(
+            type=22,
+            version=0x0303,
+            msg=[server_done_msg],
+            tls_session=session
+        )),
         tls_session=session
     )
 
@@ -210,6 +219,12 @@ def run_tls_server():
     session = ccs_record.tls_session
     
 
+    print(f"Server session pwcs:\n {session.pwcs}\n")
+    print(f"Client public key:\n {session.client_kx_pubkey}\n")
+    print(f"Pre-master key:\n {session.pre_master_secret}\n")
+    print(f"Master key:\n {session.master_secret}\n")
+    print(f"Encrypt-then-MAC:\n {session.encrypt_then_mac}")
+    print(session.handshake_messages)
 
     # =======|  Client: Finished  |=======
     data = _read_single_TLS_package(conn)
@@ -228,9 +243,12 @@ def run_tls_server():
     ccs_msg = TLSChangeCipherSpec()
     
     ccs_send_record = TLS(
-        type=20,
-        version=0x0303,
-        msg=ccs_msg,
+        bytes(TLS(
+            type=20,
+            version=0x0303,
+            msg=ccs_msg,
+            tls_session=session
+        )),
         tls_session=session
     )
     
@@ -244,21 +262,19 @@ def run_tls_server():
     session = ccs_send_record.tls_session
     
 
+
+
     # =======|  Server: Finished  |=======
     finished_msg = TLSFinished()
     
     finished_send_record = TLS(
-        type=22,
-        version=0x0303,
-        msg=[finished_msg],
-        tls_session=session
+            type=22,
+            version=0x0303,
+            msg=[finished_msg],
+            tls_session=session
     )
     
-    print(f"Server session pwcs:\n {session.pwcs}\n")
-    print(f"Client public key:\n {session.client_kx_pubkey}\n")
-    print(f"Server private key:\n {session.server_kx_privkey}\n")
-    print(f"Pre-master key:\n {session.pre_master_secret}\n")
-    print(f"Master key:\n {session.master_secret}\n")
+
 
 
     conn.sendall(bytes(finished_send_record))
@@ -294,9 +310,12 @@ def run_tls_server():
     app_data_msg = TLSApplicationData(data=response_data)
     
     app_data_send_record = TLS(
-        type=23,
-        version=0x0303,
-        msg=app_data_msg,
+        bytes(TLS(
+            type=23,
+            version=0x0303,
+            msg=app_data_msg,
+            tls_session=session
+        )),
         tls_session=session
     )
     
