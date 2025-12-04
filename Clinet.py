@@ -4,6 +4,7 @@ import os
 
 from network_helpers import _read_single_TLS_package
 from crypto_helpers import generate_ECDSA_keys_certificate, generate_RSA_keys_certificate
+from cryptography.hazmat.primitives import hashes
 
 from scapy.all import *
 from scapy.layers.tls.all import *
@@ -43,27 +44,28 @@ def run_tls_client():
 
     
     # =======|  ClientHello  |=======
+    
+
     client_hello = TLSClientHello(
         version=0x0303,  # TLS 1.2
         gmt_unix_time=int(time.time()),
         random_bytes=os.urandom(28),
         sid=b'',
         ciphers=[
+            # TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256.val,
             TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256.val,
             TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256.val,
-            TLS_DHE_RSA_WITH_AES_128_CBC_SHA256.val
+            # TLS_DHE_RSA_WITH_AES_128_CBC_SHA256.val
         ],
         comp=[0],
-        ext=[]
+        ext=[],
+        tls_session=session
     )
     
     client_hello_record = TLS(
-        bytes(TLS(
-            type=22,
-            version=0x0303,  
-            msg=[client_hello],
-            tls_session=session
-        )),
+        type=22,
+        version=0x0303,  
+        msg=[client_hello],
         tls_session=session
     )
     
@@ -72,14 +74,16 @@ def run_tls_client():
     client_random = client_hello.gmt_unix_time.to_bytes(4, 'big') + client_hello.random_bytes
     session.client_random = client_random
 
-    client_sock.sendall(bytes(client_hello_record))
+    built_client_hello_record = bytes(client_hello_record)
+
+    client_sock.sendall(built_client_hello_record)
     print("[Client] Sent ClientHello")
-    client_hello.show()
+    client_hello_parsed_record = TLS(built_client_hello_record, tls_session=session)
+    client_hello_parsed_record.show()
     print('\n')
     # ===============================
 
 
-    session = client_hello_record.tls_session
     
 
     # =======|  ServerHello  |=======
@@ -95,7 +99,6 @@ def run_tls_client():
 
 
     
-    session = server_hello_record.tls_session
     
 
     # =======|  Certificate  |=======
@@ -110,7 +113,6 @@ def run_tls_client():
     # ===============================
 
 
-    session = cert_record.tls_session
     
 
     # =======|  ServerKeyExchange  |=======
@@ -125,7 +127,6 @@ def run_tls_client():
     # ===============================
 
 
-    session = ske_record.tls_session  
 
 
     # =======|  ServerHelloDone  |=======
@@ -139,7 +140,6 @@ def run_tls_client():
     print('\n')
     # ===============================
     
-    session = server_done_record.tls_session
     
    
     # =======|  ClientKeyExchange  |=======
@@ -152,61 +152,64 @@ def run_tls_client():
     #     raise RuntimeError("Did not recieve server public key")
     session.client_kx_ecdh_params = [c for c in _tls_named_curves.keys() if _tls_named_curves[c] == session.kx_group][0]
     DHE_params = ClientECDiffieHellmanPublic(tls_session=session)
-    # DHE_params = ClientDiffieHellmanPublic(tls_session=session)
     DHE_params.fill_missing()
+    # DHE_params = ClientDiffieHellmanPublic(tls_session=session)
     
     # session. = session.server_kx_privkey.public_key()
-    cke_msg = TLSClientKeyExchange(exchkeys=DHE_params)
+    cke_msg = TLSClientKeyExchange(exchkeys=DHE_params, tls_session=session)
 
     cke_record = TLS(
-        bytes(TLS(
-            type=22,
-            version=0x0303,
-            msg=[cke_msg],
-            tls_session=session
-        )),
+        type=22,
+        version=0x0303,
+        msg=[cke_msg],
         tls_session=session
     )
 
-    client_sock.sendall(bytes(cke_record))
+    built_cke_record = bytes(cke_record)
+
+    client_sock.sendall(built_cke_record)
     print("[Client] Sent ClientKeyExchange")
-    cke_record.show()
+    cke_parsed_record = TLS(built_cke_record, tls_session=session)
+    cke_parsed_record.show()
     print('\n')
     # ===============================
     
 
-    session = cke_record.tls_session
 
     print(f"Client session pwcs:\n {session.pwcs}\n")
     print(f"Server public key:\n {session.server_kx_pubkey}\n")
     print(f"Pre-master key:\n {session.pre_master_secret}\n")
     print(f"Master key:\n {session.master_secret}\n")
     print(f"Encrypt-then-MAC:\n {session.encrypt_then_mac}")
+
+
     # =======|  Client: ChangeCipherSpec  |=======
-    ccs_msg = TLSChangeCipherSpec()
+    ccs_msg = TLSChangeCipherSpec(tls_session=session)
     
     ccs_record = TLS(
-        bytes(TLS(
-            type=20,
-            version=0x0303,
-            msg=ccs_msg,
-            tls_session=session
-        )),
+        type=20,
+        version=0x0303,
+        msg=ccs_msg,
         tls_session=session
     )
-    
-    client_sock.sendall(bytes(ccs_record))
+
+    built_css_record = bytes(ccs_record)
+
+    client_sock.sendall(built_css_record)
     print("[Client] Sent ChangeCipherSpec")
-    ccs_record.show()
+    css_parsed_record = TLS(built_css_record, tls_session=session)
+    css_parsed_record.show()
     print('\n')
     # ===============================
     
+    for msg in session.handshake_messages:
+        hash = hashes.Hash(hashes.SHA256())
+        hash.update(msg)
+        print(hash.finalize())
 
-    session = ccs_record.tls_session
     
-    print(session.handshake_messages)
     # =======|  Client: Finished  |=======
-    finished_msg = TLSFinished(tls_session = session)
+    finished_msg = TLSFinished(tls_session=session)
     
     finished_record = TLS(
         type=22,
@@ -215,10 +218,12 @@ def run_tls_client():
         tls_session=session
     )
     
-
-    client_sock.sendall(bytes(finished_record))
+    built_finished_record = bytes(finished_record)
+    
+    client_sock.sendall(built_finished_record)
     print("[Client] Sent Finished (encrypted)")
-    finished_record.show()
+    finished_parsed_record = TLS(built_finished_record, tls_session=session)
+    finished_parsed_record.show()
     print('\n')
     # ===============================
     
@@ -240,7 +245,9 @@ def run_tls_client():
     """
 
 
-    session = finished_record.tls_session
+
+
+
     
     # iv, efrag 
     # session.rcs.cipher.iv = iv
@@ -257,9 +264,8 @@ def run_tls_client():
     # ===============================
     
 
-    session = server_ccs_record.tls_session
-    
 
+    print(session.rcs.seq_num)
     # =======|  Server: Finished  |=======
     data = _read_single_TLS_package(client_sock)
     server_finished_record = TLS(data, tls_session=session)
@@ -267,31 +273,30 @@ def run_tls_client():
     server_finished_record.show()
     print('\n')
     # ===============================
+    print(session.rcs.seq_num)
     
-    
-    session = server_finished_record.tls_session
-    
+
 
     # =======|  Client: ApplicationData  |=======
-    request_data = b"|<Li3Ntove Nebo Yde Na3aD"
+    request_data = b"aaaabbbbccccddddffffeeeekkkktttt"
     
-    app_data_msg = TLSApplicationData(data=request_data)
+    app_data_msg = TLSApplicationData(data=request_data, tls_session=session)
     
     app_data_record = TLS(
-            type=23,
-            version=0x0303,
-            msg=app_data_msg,
-            tls_session=session
+        type=23,
+        version=0x0303,
+        msg=app_data_msg,
+        tls_session=session
     )
     
-    client_sock.sendall(bytes(app_data_record))
+    built_app_data_record = bytes(app_data_record)
+
+    client_sock.sendall(built_app_data_record)
     print("[Client] Sent ApplicationData (encrypted)")
-    app_data_record.show()
+    app_data_parsed_record = TLS(built_app_data_record, tls_session=session)
+    app_data_parsed_record.show()
     print('\n')
     # ===============================
-    
-
-    session = app_data_record.tls_session
     
 
     # =======|  Server: ApplicationData  |=======
