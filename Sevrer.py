@@ -201,11 +201,17 @@ def run_tls_server():
     # ===============================
 
 
+    for msg in session.handshake_messages:
+        hash = hashes.Hash(hashes.SHA256())
+        hash.update(msg)
+        print(hash.finalize())
+
+    print(session.wcs.seq_num)
+
     print(f"Server session pwcs:\n {session.pwcs}\n")
     print(f"Client public key:\n {session.client_kx_pubkey}\n")
     print(f"Pre-master key:\n {session.pre_master_secret}\n")
     print(f"Master key:\n {session.master_secret}\n")
-    print(f"Encrypt-then-MAC:\n {session.encrypt_then_mac}")
 
 
 
@@ -242,12 +248,7 @@ def run_tls_server():
     # ===============================
 
 
-    for msg in session.handshake_messages:
-        hash = hashes.Hash(hashes.SHA256())
-        hash.update(msg)
-        print(hash.finalize())
 
-    print(session.wcs.seq_num)
     # =======|  Server: Finished  |=======
     finished_msg = TLSFinished(tls_session=session)
     

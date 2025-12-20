@@ -176,11 +176,7 @@ def run_tls_client():
     
 
 
-    print(f"Client session pwcs:\n {session.pwcs}\n")
-    print(f"Server public key:\n {session.server_kx_pubkey}\n")
-    print(f"Pre-master key:\n {session.pre_master_secret}\n")
-    print(f"Master key:\n {session.master_secret}\n")
-    print(f"Encrypt-then-MAC:\n {session.encrypt_then_mac}")
+
 
 
     # =======|  Client: ChangeCipherSpec  |=======
@@ -208,6 +204,12 @@ def run_tls_client():
         print(hash.finalize())
 
     
+    print(f"Client session pwcs:\n {session.pwcs}\n")
+    print(f"Server public key:\n {session.server_kx_pubkey}\n")
+    print(f"Pre-master key:\n {session.pre_master_secret}\n")
+    print(f"Master key:\n {session.master_secret}\n")
+
+    
     # =======|  Client: Finished  |=======
     finished_msg = TLSFinished(tls_session=session)
     
@@ -227,27 +229,6 @@ def run_tls_client():
     print('\n')
     # ===============================
     
-    """
-    [Client] Sent Finished (encrypted)
-    ###[ TLS ]###
-        type      = handshake
-        version   = TLS 1.2
-        len       = 80    [deciphered_len= 16]
-        iv        = b'\x90#\xeb\xc5$\x07\x1e.D\xd67\xf2=B\xf2\xd4'
-        \msg       \
-            |###[ TLS Handshake - Finished ]###
-            |  msgtype   = finished
-            |  msglen    = 12
-            |  vdata     = b'\x87\xcbg\x0f\xd9\xfck\xd6`)<\xde'
-        mac       = b'\x9d\xe5\xeeG\xe0n\xb7{;\xbd\x02{\x90\xab\x8d+\x18&+\xc8\xf6\x84\xfa\x81P\xf4I\x97\xa2\xccS\xfc'      
-        pad       = b'\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f\x0f'
-        padlen    = 15
-    """
-
-
-
-
-
     
     # iv, efrag 
     # session.rcs.cipher.iv = iv
