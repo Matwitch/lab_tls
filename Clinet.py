@@ -23,7 +23,7 @@ SERVER_PORT = 4433
 
 def run_tls_client():
 
-    session = tlsSession(connection_end="client")
+    session = tlsSession(connection_end="server")
     
     try:
         cert_name = "client"

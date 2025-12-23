@@ -34,8 +34,8 @@ def run_tls_server():
         print(f"[Server] Error loading certificate/key: {e}")
 
 
-    session.selected_sig_alg = [c for c in _tls_hash_sig.keys() if _tls_hash_sig[c] == "sha256+ecdsa"][0]
-    print(session.selected_sig_alg)
+    # session.selected_sig_alg = [c for c in _tls_hash_sig.keys() if _tls_hash_sig[c] == "sha256+ecdsa"][0]
+    # print(session.selected_sig_alg)
 
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

@@ -64,6 +64,28 @@ def generate_RSA_keys_certificate(name: str, key_size: int = 1024):
         f.write(certificate.public_bytes(serialization.Encoding.DER))
 
 
+def get_RSA_keys_certificate(name: str, key_size: int = 1024):
+    private_key = rsa.generate_private_key(65537, key_size)
+    
+    builder = _build_x509_certificate(
+        issuer_name="matvii",
+        subject_name="petro",
+        valid_for=45
+    )
+    builder = builder.public_key(private_key.public_key())
+    certificate = builder.sign(
+        private_key=private_key, algorithm=hashes.SHA256(),
+    )
+
+    return {
+        "key":  private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.TraditionalOpenSSL,
+                    encryption_algorithm=serialization.NoEncryption()
+                ),
+        "cert": certificate.public_bytes(serialization.Encoding.DER)
+    }
+
 
 def generate_ECDSA_keys_certificate(name: str):
     private_key = ec.generate_private_key(ec.BrainpoolP384R1())
@@ -87,6 +109,31 @@ def generate_ECDSA_keys_certificate(name: str):
 
     with open(f"{name}.crt", "wb") as f:
         f.write(certificate.public_bytes(serialization.Encoding.DER))
+
+
+
+def get_ECDSA_keys_certificate(name: str):
+    private_key = ec.generate_private_key(ec.BrainpoolP384R1())
+    
+    builder = _build_x509_certificate(
+        issuer_name="matvii",
+        subject_name="petro",
+        valid_for=45
+    )
+    builder = builder.public_key(private_key.public_key())
+    certificate = builder.sign(
+        private_key=private_key, algorithm=hashes.SHA256(),
+    )
+
+    return {
+        "key":  private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.TraditionalOpenSSL,
+                    encryption_algorithm=serialization.NoEncryption()
+                ),
+        "cert": certificate.public_bytes(serialization.Encoding.DER)
+    }
+
 
 
 
