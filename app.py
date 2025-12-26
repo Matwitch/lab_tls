@@ -1,6 +1,7 @@
 import tkinter as tk
 from scapy.layers.tls.crypto.suites import *
 from tkinter import ttk
+from tkinter import filedialog
 from crypto_helpers import get_ECDSA_keys_certificate, get_RSA_keys_certificate
 import socket
 import time
@@ -17,6 +18,8 @@ from scapy.layers.tls.keyexchange import *
 from scapy.layers.tls.crypto.suites import *
 from scapy.layers.tls.cert import Cert, PrivKey
 from scapy.layers.tls.handshake import _tls_hash_sig
+
+from scapy.layers.tls.crypto.groups import _tls_named_curves
 
 load_layer("tls")
 
@@ -56,7 +59,7 @@ class StartPage(tk.Frame):
         self.grid(row=0, column=0, sticky="nsew")
         self.configure(bg="#ffffff")
 
-        label = tk.Label(self, text="Which TLS Role?")
+        label = tk.Label(self, text="Which TLS Role?", font=("Helvetica", 16, "bold"))
         label.pack(side="top", anchor="center", pady=(20, 50))
         
         def server_setup():
@@ -76,8 +79,8 @@ class StartPage(tk.Frame):
             )
             controller.current_frame.wait()
 
-        server = tk.Button(self, text="Server",
-                         command=server_setup)
+        server = tk.Button(self, text="Server", font=("Helvetica", 16, "bold"),
+                           command=server_setup)
         server.pack(pady=10)
 
 
@@ -101,8 +104,8 @@ class StartPage(tk.Frame):
                 ClientHello(parent, controller)
             )
 
-        client = tk.Button(self, text="Client",
-                         command=client_setup)
+        client = tk.Button(self, text="Client", font=("Helvetica", 16, "bold"),
+                           command=client_setup)
         client.pack(pady=10)
 
 
@@ -112,13 +115,10 @@ class ServerWaiting(tk.Frame):
         self.configure(bg="#ffffff")
         self.controller = controller
 
-        label = tk.Label(self, text="Server waiting for connection...")
+        label = tk.Label(self, text="Server waiting for connection...", font=("Helvetica", 16, "bold"))
         label.pack(side="top", anchor="center", pady=(20, 50))
 
-        bottom_line_frame = ttk.Frame(self)
-        bottom_line_frame.pack(side="bottom", anchor="center", pady=(50, 15))
         
-
     def wait(self):
         self.controller.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.controller.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -146,8 +146,7 @@ class ServerWaiting(tk.Frame):
         )
 
 
-
-class ServerHello(tk.Frame):
+class BasePackageSetup(tk.Frame):
     def __init__(self, parent, controller):
         tk.Frame.__init__(self, parent)
         self.configure(bg="#ffffff")
@@ -160,8 +159,57 @@ class ServerHello(tk.Frame):
                 StartPage(parent, self)
             )
 
-        label = tk.Label(self, text="ServerHello setup")
-        label.pack(side="top", anchor="center", pady=(20, 50))
+        self.title = tk.Label(self, text="Setup", font=("Helvetica", 16, "bold"))
+        self.title.pack(side="top", anchor="center", pady=(20, 50))
+
+
+        self.content = ttk.Frame(self)
+        self.content.pack(pady=25)
+
+        self.package_prep = None
+        self.next_frame = None
+        self.n_wait = None
+
+        def next():
+            package = self.package_prep()
+            built_package = bytes(package)
+            
+            try:
+                controller.socket.sendall(built_package)
+            except:
+                exit()
+
+            parsed_record = TLS(built_package, tls_session=controller.session)
+            raw_record = TLS(built_package)
+
+            controller.show_frame(
+                SentPackage(
+                    parent, controller,
+                    dec_data=parsed_record.show(dump=True),
+                    enc_data=raw_record.show(dump=True),
+                    next_frame=self.next_frame,
+                    wait_for_response=self.n_wait
+                )
+            )
+
+        bottom_line_frame = ttk.Frame(self)
+        bottom_line_frame.pack(side="bottom", anchor="center", pady=(50, 15))
+
+        next_button = tk.Button(bottom_line_frame, text="Send", font=("Helvetica", 14),
+                                command=next)
+        next_button.grid(row=0, column=1, padx=15, pady=5)
+
+        exit_button = tk.Button(bottom_line_frame, text="Exit", font=("Helvetica", 14),
+                                command=exit)
+        exit_button.grid(row=0, column=0, padx=15, pady=5)
+
+
+
+
+class ServerHello(BasePackageSetup):
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller)
+        self.title.config(text="ServerHello setup")
 
         check_vars = []
 
@@ -174,12 +222,12 @@ class ServerHello(tk.Frame):
 
         for item in ciphersuites:
             var = tk.IntVar(value=0)  # 0 = unchecked, 1 = checked
-            check = tk.Checkbutton(self, text=item.__name__, variable=var, anchor="w")
+            check = tk.Checkbutton(self.content, text=item.__name__, font=("Courier", 14), variable=var, anchor="w")
             check.pack(anchor="w", pady=5)  # Left-aligned, small spacing
             check_vars.append(var)
 
 
-        def next():
+        def server_hello():
             cs_codes = [ciphersuites[i].val for i in range(len(ciphersuites)) if check_vars[i].get() == 1]
 
             server_hello = TLSServerHello(
@@ -202,141 +250,195 @@ class ServerHello(tk.Frame):
             server_random = server_hello.gmt_unix_time.to_bytes(4, 'big') + server_hello.random_bytes
             controller.session.server_random = server_random
 
-            built_server_hello_record = bytes(server_hello_record)
-            
-            try:
-                controller.socket.sendall(built_server_hello_record)
-            except:
-                exit()
-
-            server_hello_parsed_record = TLS(built_server_hello_record, tls_session=controller.session)
-            server_hello_raw_record = TLS(built_server_hello_record)
-
-            controller.show_frame(
-                SentPackage(
-                    parent, controller,
-                    dec_data=server_hello_parsed_record.show(dump=True),
-                    enc_data=server_hello_raw_record.show(dump=True),
-                    next_frame=ServerCertificate,
-                    wait_for_response=0
-                )
-            )
-
-        bottom_line_frame = ttk.Frame(self)
-        bottom_line_frame.pack(side="bottom", anchor="center", pady=(50, 15))
-
-        next_button = tk.Button(bottom_line_frame, text="Send",
-                                command=next)
-        next_button.grid(row=0, column=1, padx=15, pady=5)
-
-        exit_button = tk.Button(bottom_line_frame, text="Exit",
-                                command=exit)
-        exit_button.grid(row=0, column=0, padx=15, pady=5)
+            return server_hello_record
+        
+        self.package_prep = server_hello
+        self.next_frame = ServerCertificate
+        self.n_wait = 0
 
 
-class ServerCertificate(tk.Frame):
+
+class ServerCertificate(BasePackageSetup):
     def __init__(self, parent, controller):
-        tk.Frame.__init__(self, parent)
-        self.configure(bg="#ffffff")
-
-        def exit():
-            controller.socket.close()
-            self.session = None
-            self.socket = None
-            controller.show_frame(
-                StartPage(parent, self)
+        super().__init__(parent, controller)
+        self.title.config(text="ServerCertificate setup")
+        
+        def select_certificate():
+            self.cert_path = filedialog.askopenfilename(
+                title="Select Certificate File",
+                filetypes=[("Text files", "*.crt"), ("All files", "*.*")]
             )
 
-        label = tk.Label(self, text="ServerHello setup")
-        label.pack(side="top", anchor="center", pady=(20, 50))
+        select_cert_button = tk.Button(self.content, text="Select Certificate", font=("Helvetica", 14),
+                                        command=select_certificate)
+        select_cert_button.pack(pady=25)
+        
 
-        check_vars = []
+        def server_certificate():
+            if self.cert_path: 
+                selected_cert_file = [Cert(self.cert_path)]
+            else:
+                return
 
-        ciphersuites = [
-            TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-            TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-            TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
-            TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
-        ]
-
-        for item in ciphersuites:
-            var = tk.IntVar(value=0)  # 0 = unchecked, 1 = checked
-            check = tk.Checkbutton(self, text=item.__name__, variable=var, anchor="w")
-            check.pack(anchor="w", pady=5)  # Left-aligned, small spacing
-            check_vars.append(var)
-
-        def next():
-            cs_codes = [ciphersuites[i].val for i in range(len(ciphersuites)) if check_vars[i].get() == 1]
-
-            server_hello = TLSServerHello(
-                version=0x0303,  # TLS 1.2
-                gmt_unix_time=int(time.time()),
-                random_bytes=os.urandom(28),
-                sid=os.urandom(32),
-                cipher=cs_codes,
+            certificate_msg = TLSCertificate(
+                certs=selected_cert_file,
                 tls_session=controller.session
             )
 
-            server_hello_record = TLS(
-                type=22, 
+            cert_record = TLS(
+                type=22,
                 version=0x0303,
-                msg=[server_hello],
+                msg=[certificate_msg],
                 tls_session=controller.session
             )
 
-            # TODO wtf?
-            server_random = server_hello.gmt_unix_time.to_bytes(4, 'big') + server_hello.random_bytes
-            controller.session.server_random = server_random
-
-            built_server_hello_record = bytes(server_hello_record)
-            
-            try:
-                controller.socket.sendall(built_server_hello_record)
-            except:
-                exit()
-
-            server_hello_parsed_record = TLS(built_server_hello_record, tls_session=controller.session)
-            server_hello_raw_record = TLS(built_server_hello_record)
-
-            controller.show_frame(
-                SentPackage(
-                    parent, controller,
-                    dec_data=server_hello_parsed_record.show(dump=True),
-                    enc_data=server_hello_raw_record.show(dump=True),
-                    next_frame=ServerCertificate,
-                    wait_for_response=0
-                )
-            )
-
-        bottom_line_frame = ttk.Frame(self)
-        bottom_line_frame.pack(side="bottom", anchor="center", pady=(50, 15))
+            return cert_record
+        
+        self.package_prep = server_certificate
+        self.next_frame = ServerKeyExchange
+        self.n_wait = 0
 
 
-        next_button = tk.Button(bottom_line_frame, text="Send",
-                                command=next)
-        next_button.grid(row=0, column=1, padx=15, pady=5, anchor="e")
-
-        exit_button = tk.Button(bottom_line_frame, text="Exit",
-                                command=exit)
-        exit_button.grid(row=0, column=0, padx=15, pady=5, anchor="w")
-
-
-
-class ClientHello(tk.Frame):
+class ServerKeyExchange(BasePackageSetup):
     def __init__(self, parent, controller):
-        tk.Frame.__init__(self, parent)
-        self.configure(bg="#ffffff")
+        super().__init__(parent, controller)
+        self.title.config(text="ServerKeyExchange setup")
 
-        def exit():
-            controller.socket.close()
-            self.session = None
-            self.socket = None
-            controller.show_frame(
-                StartPage(parent, self)
+        selected_kx_alg = tk.Label(self.content, text=type(controller.session.pwcs.ciphersuite).__name__, font=("Helvetica", 14))
+        selected_kx_alg.pack(pady=25)
+
+
+        def ske():
+            if "ECDHE" in controller.session.pwcs.ciphersuite.kx_alg.name:
+                DHE_params = ServerECDHNamedCurveParams(tls_session=controller.session)
+            else:
+                DHE_params = ServerDHParams(tls_session=controller.session)
+            
+            DHE_params.fill_missing()
+
+            ske_msg = TLSServerKeyExchange(params=DHE_params, tls_session=controller.session)
+
+            ske_record = TLS(
+                type=22,
+                version=0x0303,
+                msg=[ske_msg],
+                tls_session=controller.session
             )
 
-        label = tk.Label(self, text="ClientHello setup")
-        label.pack(side="top", anchor="center", pady=(20, 50))
+            return ske_record
+        
+        self.package_prep = ske
+        self.next_frame = ServerHelloDone
+        self.n_wait = 0
+
+
+class ServerHelloDone(BasePackageSetup):
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller)
+        self.title.config(text="ServerHelloDone")
+        
+
+        def server_done():
+            server_done_msg = TLSServerHelloDone(tls_session=controller.session)
+    
+            server_done_record = TLS(
+                type=22,
+                version=0x0303,
+                msg=[server_done_msg],
+                tls_session=controller.session
+            )
+
+            return server_done_record
+        
+        self.package_prep = server_done
+        self.next_frame = ServerChangeCipherSpec
+        self.n_wait = 3
+
+
+class ServerChangeCipherSpec(BasePackageSetup):
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller)
+        self.title.config(text="ServerChangeCipherSpec setup")
+
+        message = tk.Label(self.content, text="Not supported", font=("Helvetica", 14))
+        message.pack(pady=25)
+
+        def sccs():
+            ccs_msg = TLSChangeCipherSpec(tls_session=controller.session)
+    
+            server_ccs_record = TLS(
+                type=20,
+                version=0x0303,
+                msg=[ccs_msg],
+                tls_session=controller.session
+            )
+            
+            return server_ccs_record
+
+        self.package_prep = sccs
+        self.next_frame = ServerFinished
+        self.n_wait = 0
+
+class ServerFinished(BasePackageSetup):
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller)
+        self.title.config(text="ServerFinished")
+
+        def server_finished():
+            finished_msg = TLSFinished(tls_session=controller.session)
+    
+            server_finished_record = TLS(
+                type=22,
+                version=0x0303,
+                msg=[finished_msg],
+                tls_session=controller.session
+            )
+            
+            return server_finished_record
+
+        self.package_prep = server_finished
+        self.next_frame = ServerApplicationData
+        self.n_wait = 1
+
+
+class ServerApplicationData(BasePackageSetup):
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller)
+        self.title.config(text="ServerApplicationData")
+        
+        data_input = tk.Text(self.content, 
+                             height=6,      
+                             width=32,       
+                             wrap="char",    
+                             font=("Helvetica", 12),
+                             padx=10, pady=10)
+        data_input.pack(pady=20, padx=20, fill="both", expand=True)
+        
+
+        def appdata():
+            app_data_msg = TLSApplicationData(
+                data=data_input.get("1.0", "end-1c"), 
+                tls_session=controller.session
+                )
+    
+            server_app_data_record = TLS(
+                type=23,
+                version=0x0303,
+                msg=app_data_msg,
+                tls_session=controller.session
+            )
+
+            return server_app_data_record
+        
+        self.package_prep = appdata
+        self.next_frame = ServerApplicationData
+        self.n_wait = 1
+
+
+class ClientHello(BasePackageSetup):
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller)
+        self.title.config(text="ServerHello setup")
 
         check_vars = []
 
@@ -349,11 +451,12 @@ class ClientHello(tk.Frame):
 
         for item in ciphersuites:
             var = tk.IntVar(value=0)  # 0 = unchecked, 1 = checked
-            check = tk.Checkbutton(self, text=item.__name__, variable=var, anchor="w")
+            check = tk.Checkbutton(self.content, text=item.__name__, font=("Courier", 14), variable=var, anchor="w")
             check.pack(anchor="w", pady=5)  # Left-aligned, small spacing
             check_vars.append(var)
 
-        def next():
+
+        def client_hello():
             cs_codes = [ciphersuites[i].val for i in range(len(ciphersuites)) if check_vars[i].get() == 1]
 
             client_hello = TLSClientHello(
@@ -374,129 +477,135 @@ class ClientHello(tk.Frame):
                 tls_session=controller.session
             )
             
-
-            # TODO wtf?
             client_random = client_hello.gmt_unix_time.to_bytes(4, 'big') + client_hello.random_bytes
             controller.session.client_random = client_random
 
-            built_client_hello_record = bytes(client_hello_record)
-            try:
-                controller.socket.sendall(built_client_hello_record)
-            except:
-                exit()
-
-            client_hello_parsed_record = TLS(built_client_hello_record, tls_session=controller.session)
-            client_hello_raw_record = TLS(built_client_hello_record)
-
-            controller.show_frame(
-                SentPackage(
-                    parent, controller,
-                    dec_data=client_hello_parsed_record.show(dump=True),
-                    enc_data=client_hello_raw_record.show(dump=True),
-                    next_frame=ClientKeyExchange,
-                    wait_for_response=4
-                )
-            )
-            
-        bottom_line_frame = ttk.Frame(self)
-        bottom_line_frame.pack(side="bottom", anchor="center", pady=(50, 15))
-
-        next_button = tk.Button(bottom_line_frame, text="Send",
-                                command=next)
-        next_button.grid(row=0, column=1, padx=15, pady=5)
-
-        exit_button = tk.Button(bottom_line_frame, text="Exit",
-                                command=exit)
-        exit_button.grid(row=0, column=0, padx=15, pady=5)
+            return client_hello_record
+        
+        self.package_prep = client_hello
+        self.next_frame = ClientKeyExchange
+        self.n_wait = 4
 
 
 
-class ClientKeyExchange(tk.Frame):
+class ClientKeyExchange(BasePackageSetup):
     def __init__(self, parent, controller):
-        tk.Frame.__init__(self, parent)
-        self.configure(bg="#ffffff")
+        super().__init__(parent, controller)
+        self.title.config(text="ClientKeyExchange setup")
 
-        def exit():
-            controller.socket.close()
-            self.session = None
-            self.socket = None
-            controller.show_frame(
-                StartPage(parent, self)
-            )
+        selected_kx_alg = tk.Label(self.content, text=type(controller.session.pwcs.ciphersuite).__name__, font=("Helvetica", 14))
+        selected_kx_alg.pack(pady=25)
 
-        label = tk.Label(self, text="ClientHello setup")
-        label.pack(side="top", anchor="center", pady=(20, 50))
 
-        check_vars = []
-
-        ciphersuites = [
-            TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-            TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-            TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
-            TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
-        ]
-
-        for item in ciphersuites:
-            var = tk.IntVar(value=0)  # 0 = unchecked, 1 = checked
-            check = tk.Checkbutton(self, text=item.__name__, variable=var, anchor="w")
-            check.pack(anchor="w", pady=5)  # Left-aligned, small spacing
-            check_vars.append(var)
-
-        def next():
-            cs_codes = [ciphersuites[i].val for i in range(len(ciphersuites)) if check_vars[i].get() == 1]
-
-            client_hello = TLSClientHello(
-                version=0x0303,  # TLS 1.2
-                gmt_unix_time=int(time.time()),
-                random_bytes=os.urandom(28),
-                sid=b'',
-                ciphers=cs_codes,
-                comp=[0],
-                ext=[],
-                tls_session=controller.session
-            )
+        def cke():
+            if "ECDHE" in controller.session.pwcs.ciphersuite.kx_alg.name:
+                controller.session.client_kx_ecdh_params = [c for c in _tls_named_curves.keys() if _tls_named_curves[c] == controller.session.kx_group][0]
+                DHE_params = ClientECDiffieHellmanPublic(tls_session=controller.session)
+            else:
+                controller.session.client_kx_ffdh_params = controller.session.server_kx_pubkey.parameters()
+                DHE_params = ClientDiffieHellmanPublic(tls_session=controller.session)
             
-            client_hello_record = TLS(
+            DHE_params.fill_missing()
+
+
+            cke_msg = TLSClientKeyExchange(exchkeys=DHE_params, tls_session=controller.session)
+
+            cke_record = TLS(
                 type=22,
-                version=0x0303,  
-                msg=[client_hello],
+                version=0x0303,
+                msg=[cke_msg],
                 tls_session=controller.session
             )
             
+            return cke_record
 
-            # TODO wtf?
-            client_random = client_hello.gmt_unix_time.to_bytes(4, 'big') + client_hello.random_bytes
-            controller.session.client_random = client_random
+        
+        self.package_prep = cke
+        self.next_frame = ClientChangeCipherSpec
+        self.n_wait = 0
 
-            built_client_hello_record = bytes(client_hello_record)
-            try:
-                controller.socket.sendall(built_client_hello_record)
-            except:
-                exit()
 
-            client_hello_parsed_record = TLS(built_client_hello_record, tls_session=controller.session)
-            client_hello_raw_record = TLS(built_client_hello_record)
 
-            controller.show_frame(
-                SentPackage(
-                    parent, controller,
-                    dec_data=client_hello_parsed_record.show(dump=True),
-                    enc_data=client_hello_raw_record.show(dump=True),
-                    next_frame=ClientKeyExchange,
-                    wait_for_response=4
-                )
+class ClientChangeCipherSpec(BasePackageSetup):
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller)
+        self.title.config(text="ClientChangeCipherSpec setup")
+
+        message = tk.Label(self.content, text="Not supported", font=("Helvetica", 14))
+        message.pack(pady=25)
+
+        def cccs():
+            ccs_msg = TLSChangeCipherSpec(tls_session=controller.session)
+    
+            client_ccs_record = TLS(
+                type=20,
+                version=0x0303,
+                msg=[ccs_msg],
+                tls_session=controller.session
             )
             
-        bottom_line_frame = ttk.Frame(self)
-        bottom_line_frame.pack(side="bottom", anchor="center", pady=(50, 15))
+            return client_ccs_record
 
-        next_button = tk.Button(bottom_line_frame, text="Send",
-                                command=next)
-        next_button.grid(row=0, column=1, padx=15, pady=5, anchor="e")
+        self.package_prep = cccs
+        self.next_frame = ClientFinished
+        self.n_wait = 0
 
-        exit_button = tk.Button(bottom_line_frame, text="Exit",
-                                command=exit)
-        exit_button.grid(row=0, column=0, padx=15, pady=5, anchor="w")
+class ClientFinished(BasePackageSetup):
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller)
+        self.title.config(text="ClientFinished")
+
+        def client_finished():
+            finished_msg = TLSFinished(tls_session=controller.session)
+    
+            client_finished_record = TLS(
+                type=22,
+                version=0x0303,
+                msg=[finished_msg],
+                tls_session=controller.session
+            )
+            
+            return client_finished_record
+
+        self.package_prep = client_finished
+        self.next_frame = ClientApplicationData
+        self.n_wait = 2
+
+
+class ClientApplicationData(BasePackageSetup):
+    def __init__(self, parent, controller):
+        super().__init__(parent, controller)
+        self.title.config(text="ClientApplicationData")
+        
+        data_input = tk.Text(self.content, 
+                             height=6,      
+                             width=32,       
+                             wrap="char",    
+                             font=("Helvetica", 12),
+                             padx=10, pady=10)
+        data_input.pack(pady=20, padx=20, fill="both", expand=True)
+        
+
+        def appdata():
+            app_data_msg = TLSApplicationData(
+                data=data_input.get("1.0", "end-1c"), 
+                tls_session=controller.session
+                )
+    
+            server_app_data_record = TLS(
+                type=23,
+                version=0x0303,
+                msg=app_data_msg,
+                tls_session=controller.session
+            )
+
+            return server_app_data_record
+        
+        self.package_prep = appdata
+        self.next_frame = ClientApplicationData
+        self.n_wait = 1
+
+
 
 
 
@@ -514,11 +623,8 @@ class RecievedPackage(tk.Frame):
                 StartPage(parent, self)
             )
 
-
-
         label = tk.Label(self, text="Recieved package:", font=("Helvetica", 16, "bold"))
         label.pack(pady=50)
-
 
         package_frame = ttk.Frame(self)
         package_frame.pack(anchor="center", pady=(25, 25))
@@ -560,11 +666,11 @@ class RecievedPackage(tk.Frame):
                     )
                 )
 
-        next_button = tk.Button(bottom_line_frame, text="Next",
+        next_button = tk.Button(bottom_line_frame, text="Next", font=("Helvetica", 14),
                                 command=next)
         next_button.grid(row=0, column=1, padx=50, pady=5, sticky='e')
 
-        exit_button = tk.Button(bottom_line_frame, text="Exit",
+        exit_button = tk.Button(bottom_line_frame, text="Exit", font=("Helvetica", 14),
                                 command=exit)
         exit_button.grid(row=0, column=0, padx=50, pady=5, sticky='w')
 
@@ -582,10 +688,8 @@ class SentPackage(tk.Frame):
                 StartPage(parent, self)
             )
 
-
         label = tk.Label(self, text="Sent package:", font=("Helvetica", 16, "bold"))
         label.pack(pady=50)
-
 
         package_frame = ttk.Frame(self)
         package_frame.pack(anchor="center", pady=(25, 25))
@@ -627,11 +731,11 @@ class SentPackage(tk.Frame):
                     )
                 )
 
-        next_button = tk.Button(bottom_line_frame, text="Next",
+        next_button = tk.Button(bottom_line_frame, text="Next", font=("Helvetica", 14),
                                 command=next)
         next_button.grid(row=0, column=1, padx=50, pady=5, sticky='e')
 
-        exit_button = tk.Button(bottom_line_frame, text="Exit",
+        exit_button = tk.Button(bottom_line_frame, text="Exit", font=("Helvetica", 14),
                                 command=exit)
         exit_button.grid(row=0, column=0, padx=50, pady=5, sticky='w')
 

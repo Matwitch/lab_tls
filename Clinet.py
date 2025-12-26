@@ -150,12 +150,14 @@ def run_tls_client():
         
     # else:
     #     raise RuntimeError("Did not recieve server public key")
+
+    
+    # session.client_kx_ffdh_params = session.server_kx_pubkey.parameters()
+    # DHE_params = ClientDiffieHellmanPublic(tls_session=session)
     session.client_kx_ecdh_params = [c for c in _tls_named_curves.keys() if _tls_named_curves[c] == session.kx_group][0]
     DHE_params = ClientECDiffieHellmanPublic(tls_session=session)
     DHE_params.fill_missing()
-    # DHE_params = ClientDiffieHellmanPublic(tls_session=session)
-    
-    # session. = session.server_kx_privkey.public_key()
+
     cke_msg = TLSClientKeyExchange(exchkeys=DHE_params, tls_session=session)
 
     cke_record = TLS(
