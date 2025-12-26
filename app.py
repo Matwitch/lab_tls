@@ -15,7 +15,7 @@ from scapy.all import *
 from scapy.layers.tls.all import *
 from scapy.layers.tls.handshake import *
 from scapy.layers.tls.keyexchange import *
-from scapy.layers.tls.crypto.suites import *
+from scapy.layers.tls.crypto.suites import _tls_cipher_suites_cls
 from scapy.layers.tls.cert import Cert, PrivKey
 from scapy.layers.tls.handshake import _tls_hash_sig
 
@@ -41,6 +41,7 @@ class MainApp(tk.Tk):
 
         self.session = None
         self.socket = None
+        self.ciphers = None
 
         self.show_frame(
             StartPage(container, self)
@@ -87,15 +88,6 @@ class StartPage(tk.Frame):
         def client_setup():
             controller.session = tlsSession(connection_end="server")
 
-            try:
-                c = get_ECDSA_keys_certificate("client")
-                controller.session.client_certs = [Cert(c["cert"])]
-                controller.session.client_key = PrivKey(c["key"])
-
-            except Exception as e:
-                print(f"[Client] Error loading certificate/key: {e}")
-
-
             controller.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             controller.socket.connect((SERVER_IP, SERVER_PORT))
             controller.session.sock = controller.socket
@@ -134,6 +126,9 @@ class ServerWaiting(tk.Frame):
             exit()
         decrypted_data = TLS(raw_data, tls_session=self.controller.session)
         encrypted_data = TLS(raw_data)
+
+        if decrypted_data.haslayer(TLSClientHello):
+            self.controller.ciphers = decrypted_data[TLSClientHello].ciphers
 
         self.controller.show_frame(
             RecievedPackage(
@@ -211,31 +206,23 @@ class ServerHello(BasePackageSetup):
         super().__init__(parent, controller)
         self.title.config(text="ServerHello setup")
 
-        check_vars = []
 
-        ciphersuites = [
-            TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-            TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-            TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
-            TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
-        ]
-
+        ciphersuites = [cscls for cscls in _tls_cipher_suites_cls.values() if cscls().val in controller.ciphers]
+        selected_cs = tk.StringVar(value=ciphersuites[0].__name__)
+        
         for item in ciphersuites:
-            var = tk.IntVar(value=0)  # 0 = unchecked, 1 = checked
-            check = tk.Checkbutton(self.content, text=item.__name__, font=("Courier", 14), variable=var, anchor="w")
-            check.pack(anchor="w", pady=5)  # Left-aligned, small spacing
-            check_vars.append(var)
+            rb = tk.Radiobutton(self.content, text=item.__name__, variable=selected_cs, font=("Courier", 14), anchor="w", value=item.__name__)
+            rb.pack(anchor="w", pady=10)
 
 
         def server_hello():
-            cs_codes = [ciphersuites[i].val for i in range(len(ciphersuites)) if check_vars[i].get() == 1]
-
+            import scapy.layers.tls.crypto.suites
             server_hello = TLSServerHello(
                 version=0x0303,  # TLS 1.2
                 gmt_unix_time=int(time.time()),
                 random_bytes=os.urandom(28),
                 sid=os.urandom(32),
-                cipher=cs_codes,
+                cipher=getattr(scapy.layers.tls.crypto.suites, selected_cs.get())().val,
                 tls_session=controller.session
             )
 
@@ -275,13 +262,25 @@ class ServerCertificate(BasePackageSetup):
         
 
         def server_certificate():
-            if self.cert_path: 
-                selected_cert_file = [Cert(self.cert_path)]
+            if self.cert_path:
+                name, ext = os.path.splitext(self.cert_path)
+                controller.session.server_certs = [Cert(f"{name}.crt")]
+                
+                if "ECDSA" in controller.session.pwcs.ciphersuite.kx_alg.name:
+                    controller.session.selected_sig_alg = [c for c in _tls_hash_sig.keys() if _tls_hash_sig[c] == "sha256+ecdsa"][0]
+
+                    controller.session.server_key = PrivKey(f"{name}.key")
+
+                elif "RSA" in controller.session.pwcs.ciphersuite.kx_alg.name:
+                    controller.session.selected_sig_alg = [c for c in _tls_hash_sig.keys() if _tls_hash_sig[c] == "sha256+rsaepss"][0]
+                    
+                    controller.session.server_rsa_key = PrivKey(f"{name}.key")
+
             else:
                 return
 
             certificate_msg = TLSCertificate(
-                certs=selected_cert_file,
+                certs=controller.session.server_certs,
                 tls_session=controller.session
             )
 
@@ -438,7 +437,7 @@ class ServerApplicationData(BasePackageSetup):
 class ClientHello(BasePackageSetup):
     def __init__(self, parent, controller):
         super().__init__(parent, controller)
-        self.title.config(text="ServerHello setup")
+        self.title.config(text="ClientHello setup")
 
         check_vars = []
 
@@ -655,6 +654,7 @@ class RecievedPackage(tk.Frame):
                     exit()
                 decrypted_data = TLS(raw_data, tls_session=self.controller.session)
                 encrypted_data = TLS(raw_data)
+
 
                 self.controller.show_frame(
                     RecievedPackage(

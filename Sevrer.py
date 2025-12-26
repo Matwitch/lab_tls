@@ -34,8 +34,8 @@ def run_tls_server():
         print(f"[Server] Error loading certificate/key: {e}")
 
 
-    # session.selected_sig_alg = [c for c in _tls_hash_sig.keys() if _tls_hash_sig[c] == "sha256+ecdsa"][0]
-    # print(session.selected_sig_alg)
+    session.selected_sig_alg = [c for c in _tls_hash_sig.keys() if _tls_hash_sig[c] == "sha256+ecdsa"][0]
+    print(session.selected_sig_alg)
 
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -52,6 +52,9 @@ def run_tls_server():
     # =======|  ClientHello  |=======
     data = _read_single_TLS_package(conn)
     client_hello_record = TLS(data, tls_session=session)
+
+    if client_hello_record.haslayer(TLSClientHello):  # Quick check for ClientHello
+        print(client_hello_record[TLSClientHello].ciphers)
 
     print("[Server] Received ClientHello")
     client_hello_record.show()
@@ -83,7 +86,6 @@ def run_tls_server():
         tls_session=session
     )
 
-    # TODO wtf?
     server_random = server_hello.gmt_unix_time.to_bytes(4, 'big') + server_hello.random_bytes
     session.server_random = server_random
 
@@ -91,6 +93,8 @@ def run_tls_server():
 
     conn.sendall(built_server_hello_record)
     print("[Server] Sent ServerHello")
+
+    
     server_hello_parsed_record = TLS(built_server_hello_record, tls_session=session)
     server_hello_parsed_record.show()
     print('\n')
