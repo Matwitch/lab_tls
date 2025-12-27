@@ -235,7 +235,6 @@ class ServerHello(BasePackageSetup):
                 tls_session=controller.session
             )
 
-            # TODO wtf?
             server_random = server_hello.gmt_unix_time.to_bytes(4, 'big') + server_hello.random_bytes
             controller.session.server_random = server_random
 
