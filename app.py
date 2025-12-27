@@ -51,6 +51,8 @@ class MainApp(tk.Tk):
         self.current_frame = frame
         self.current_frame.grid(row=0, column=0, sticky="nsew")
         self.current_frame.tkraise()
+        self.current_frame.focus_set()
+
         self.update_idletasks()
 
 
@@ -655,6 +657,8 @@ class RecievedPackage(tk.Frame):
                 decrypted_data = TLS(raw_data, tls_session=self.controller.session)
                 encrypted_data = TLS(raw_data)
 
+                self.unbind("<Return>")
+                self.unbind("<Escape>")
 
                 self.controller.show_frame(
                     RecievedPackage(
@@ -669,11 +673,12 @@ class RecievedPackage(tk.Frame):
         next_button = tk.Button(bottom_line_frame, text="Next", font=("Helvetica", 14),
                                 command=next)
         next_button.grid(row=0, column=1, padx=50, pady=5, sticky='e')
+        self.bind("<Return>", lambda event: next())
 
         exit_button = tk.Button(bottom_line_frame, text="Exit", font=("Helvetica", 14),
                                 command=exit)
         exit_button.grid(row=0, column=0, padx=50, pady=5, sticky='w')
-
+        self.bind("<Escape>", lambda event: exit())
 
 class SentPackage(tk.Frame):
     def __init__(self, parent, controller, enc_data, dec_data, next_frame, wait_for_response=0):
@@ -721,6 +726,8 @@ class SentPackage(tk.Frame):
                 decrypted_data = TLS(raw_data, tls_session=controller.session)
                 encrypted_data = TLS(raw_data)
 
+                self.unbind("<Return>")
+                self.unbind("<Escape>")
                 controller.show_frame(
                     RecievedPackage(
                         parent, controller,
@@ -730,14 +737,17 @@ class SentPackage(tk.Frame):
                         wait_for_response=wait_for_response-1
                     )
                 )
+                
 
         next_button = tk.Button(bottom_line_frame, text="Next", font=("Helvetica", 14),
                                 command=next)
         next_button.grid(row=0, column=1, padx=50, pady=5, sticky='e')
+        self.bind("<Return>", lambda event: next())
 
         exit_button = tk.Button(bottom_line_frame, text="Exit", font=("Helvetica", 14),
                                 command=exit)
         exit_button.grid(row=0, column=0, padx=50, pady=5, sticky='w')
+        self.bind("<Escape>", lambda event: exit())
 
 if __name__ == "__main__":
     app = MainApp()
